@@ -107,3 +107,41 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_getprocs(void)
+{
+  uint64 addr;
+  int max;
+  int count = 0;
+  struct procinfo pinfo;
+  struct proc *p;
+  
+  argaddr(0, &addr);
+  argint(1, &max);
+  
+  extern struct proc proc[NPROC];
+  
+  for(p = proc; p < &proc[NPROC] && count < max; p++){
+    acquire(&p->lock);
+    if(p->state != UNUSED){
+      pinfo.pid = p->pid;
+      pinfo.ppid = p->parent ? p->parent->pid : 0;
+      pinfo.priority = p->priority;
+      pinfo.state = p->state;
+      safestrcpy(pinfo.name, p->name, sizeof(pinfo.name));
+      
+      release(&p->lock);
+      
+      if(copyout(myproc()->pagetable, addr + count * sizeof(pinfo), 
+                 (char*)&pinfo, sizeof(pinfo)) < 0){
+        return -1;
+      }
+      count++;
+    } else {
+      release(&p->lock);
+    }
+  }
+  
+  return count;
+}

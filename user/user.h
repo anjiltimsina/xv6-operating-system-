@@ -2,6 +2,15 @@
 
 struct stat;
 
+// Process information structure for getprocs syscall
+struct procinfo {
+  int pid;      // Process ID
+  int ppid;     // Parent process ID
+  int priority; // Process priority
+  int state;    // Process state
+  char name[16]; // Process name
+};
+
 // system calls
 int fork(void);
 int exit(int) __attribute__((noreturn));
@@ -24,6 +33,7 @@ int getpid(void);
 char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
+int getprocs(struct procinfo*, int);
 
 // ulib.c
 int stat(const char*, struct stat*);
@@ -33,6 +43,8 @@ char* strchr(const char*, char c);
 int strcmp(const char*, const char*);
 char* gets(char*, int max);
 uint strlen(const char*);
+int strncmp(const char*, const char*, uint);
+char* strncpy(char*, const char*, int);
 void* memset(void*, int, uint);
 int atoi(const char*);
 int memcmp(const void *, const void *, uint);

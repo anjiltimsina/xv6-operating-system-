@@ -146,6 +146,9 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // Set default priority to 20 (medium priority)
+  p->priority = 20;
+
   return p;
 }
 
@@ -425,6 +428,8 @@ void
 scheduler(void)
 {
   struct proc *p;
+  struct proc *hp = 0;  // highest priority process
+  int hp_priority = 32; // priority higher than any process (0-31)
   struct cpu *c = mycpu();
 
   c->proc = 0;
@@ -437,25 +442,41 @@ scheduler(void)
     intr_on();
     intr_off();
 
+    hp = 0;
+    hp_priority = 32;
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
         found = 1;
+        // Select process with highest priority (lowest priority value)
+        if(p->priority < hp_priority) {
+          if(hp != 0) {
+            release(&hp->lock);
+          }
+          hp = p;
+          hp_priority = p->priority;
+        } else {
+          release(&p->lock);
+        }
+      } else {
+        release(&p->lock);
       }
-      release(&p->lock);
     }
-    if(found == 0) {
+
+    if(found && hp != 0) {
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      hp->state = RUNNING;
+      c->proc = hp;
+      swtch(&c->context, &hp->context);
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+      release(&hp->lock);
+    } else if(found == 0) {
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
     }

@@ -4,6 +4,149 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
+// History buffer configuration
+#define HISTORY_SIZE 10
+#define MAXCMD 100
+
+// Command completion list
+const char *commands[] = {
+  "cd", "history", "exit", "wait",
+  "echo", "cat", "ls", "mkdir", "rm", "ln", "kill", "grep", "wc", "ps",
+  "fork", "pipe", "stressfs", "usertests", "grind", "zombie", "logstress",
+  "forphan", "dorphan", "init", "sh", "forktest", 0
+};
+
+// History buffer
+static char history[HISTORY_SIZE][MAXCMD];
+static int history_count = 0;
+static int history_idx = 0;
+
+// Add command to history
+void
+add_history(const char *cmd)
+{
+  int len = strlen(cmd);
+  if(len > 0 && cmd[len-1] == '\n'){
+    len--;
+  }
+  if(len > MAXCMD - 1){
+    len = MAXCMD - 1;
+  }
+  memcpy(history[history_idx], cmd, len);
+  history[history_idx][len] = '\0';
+  
+  history_idx = (history_idx + 1) % HISTORY_SIZE;
+  if(history_count < HISTORY_SIZE){
+    history_count++;
+  }
+}
+
+// Show command history
+void
+show_history(void)
+{
+  int i, start;
+  
+  if(history_count == 0){
+    printf("No history yet\n");
+    return;
+  }
+  
+  if(history_count < HISTORY_SIZE){
+    start = 0;
+  } else {
+    start = history_idx;
+  }
+  
+  for(i = 0; i < history_count; i++){
+    int idx = (start + i) % HISTORY_SIZE;
+    printf("%d\t%s\n", i+1, history[idx]);
+  }
+}
+
+// Find command matches
+int
+find_matches(const char *prefix, char **matches)
+{
+  int count = 0;
+  int i;
+  int plen = strlen(prefix);
+  
+  for(i = 0; commands[i] != 0 && count < 30; i++){
+    if(strncmp(commands[i], prefix, plen) == 0){
+      matches[count] = (char*)commands[i];
+      count++;
+    }
+  }
+  
+  return count;
+}
+
+// Get command with tab completion support
+int
+getcmd_with_completion(char *buf, int nbuf)
+{
+  char c;
+  int n = 0;
+  char *matches[30];
+  int match_count;
+  int i;
+  
+  write(2, "$ ", 2);
+  
+  while(read(0, &c, 1) > 0){
+    if(c == '\t' && n > 0){
+      // Tab completion
+      buf[n] = '\0';
+      match_count = find_matches(buf, matches);
+      
+  if(match_count == 1){
+        int len = strlen(matches[0]);
+        write(2, matches[0] + n, len - n);
+        write(2, " ", 1);
+        memcpy(buf, matches[0], len);
+        buf[len] = ' ';
+        n = len + 1;
+      } else if(match_count > 1 && match_count <= 5){
+        write(2, "\n", 1);
+        for(i = 0; i < match_count; i++){
+          write(2, matches[i], strlen(matches[i]));
+          write(2, "  ", 2);
+        }
+        write(2, "\n$ ", 3);
+        write(2, buf, n);
+      }
+      continue;
+      // Otherwise silently do nothing for no match or >5 matches
+    } else if(c == '\b' || c == 0x7f){
+      // Backspace
+      if(n > 0){
+        n--;
+        write(2, "\b \b", 3);
+      }
+    } else if(c == '\n'){
+      buf[n] = '\n';
+      n++;
+      write(2, "\n", 1);
+      buf[n] = '\0';
+      return 0;
+    } else if(c == 4){
+      // Ctrl+D (EOF)
+      return -1;
+    } else {
+      if(c == '\t') continue;  // ignore stray tabs
+      buf[n] = c;
+      write(2, &c, 1);
+      n++;
+      if(n >= nbuf - 1){
+        break;
+      }
+    }
+  }
+  
+  return -1; // EOF
+}
+
 // Parsed command representation
 #define EXEC  1
 #define REDIR 2
@@ -134,12 +277,7 @@ runcmd(struct cmd *cmd)
 int
 getcmd(char *buf, int nbuf)
 {
-  write(2, "$ ", 2);
-  memset(buf, 0, nbuf);
-  gets(buf, nbuf);
-  if(buf[0] == 0) // EOF
-    return -1;
-  return 0;
+  return getcmd_with_completion(buf, nbuf);
 }
 
 int
@@ -163,9 +301,23 @@ main(void)
       cmd++;
     if (*cmd == '\n') // is a blank command
       continue;
+    
+    // Remove trailing newline and add to history
+    int len = strlen(cmd);
+    if(len > 0 && cmd[len-1] == '\n'){
+      cmd[len-1] = '\0';
+    }
+    add_history(cmd);
+    
+    // Check for history command
+    if(strcmp(cmd, "history") == 0 || strcmp(cmd, "history\n") == 0){
+      show_history();
+      continue;
+    }
+    
     if(cmd[0] == 'c' && cmd[1] == 'd' && cmd[2] == ' '){
       // Chdir must be called by the parent, not the child.
-      cmd[strlen(cmd)-1] = 0;  // chop \n
+      cmd[strlen(cmd)-1] = 0;  // chop any trailing newline if present
       if(chdir(cmd+3) < 0)
         fprintf(2, "cannot cd %s\n", cmd+3);
     } else {

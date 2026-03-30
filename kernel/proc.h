@@ -1,3 +1,10 @@
+struct procinfo {
+  int pid;
+  int ppid;
+  int priority;
+  int state;
+  char name[16];
+};
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -104,4 +111,5 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int priority;                // Process priority (0=highest, 31=lowest)
 };
