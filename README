@@ -46,3 +46,170 @@ You will need a RISC-V "newlib" tool chain from
 https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
 riscv64-softmmu.  Once they are installed, and in your shell
 search path, you can run "make qemu".
+
+================================================================================
+CUSTOM MODIFICATIONS AND ENHANCEMENTS
+================================================================================
+
+This xv6 implementation includes the following custom modifications to enhance
+process scheduling, system monitoring, and shell functionality:
+
+1. PRIORITY-BASED PROCESS SCHEDULING
+   ====================================
+   
+   Implemented a priority-based scheduler that prioritizes processes based on
+   their priority level.
+   
+   Files Modified:
+   - kernel/proc.h: Added 'int priority' field to struct proc
+     Priority range: 0 (highest) to 31 (lowest)
+   
+   - kernel/proc.c:
+     * allocproc(): Initializes each new process with default priority of 20
+     * scheduler(): Modified to track and select the highest priority runnable
+                   process (lowest numeric value) for CPU execution
+   
+   How It Works:
+   - CPU always executes the process with lowest priority number
+   - Prevents lock starvation by ensuring no process waits indefinitely
+   - Falls back to idle (wfi) when no runnable processes exist
+
+2. PROCESS INFORMATION SYSCALL (getprocs)
+   ======================================
+   
+   New system call to retrieve information about all running processes,
+   enabling user-space tools to monitor system state.
+   
+   Files Modified:
+   - kernel/syscall.h: Added SYS_getprocs definition (syscall #22)
+   
+   - kernel/syscall.c:
+     * Added extern declaration for sys_getprocs()
+     * Added entry in syscalls[] array for syscall dispatch
+   
+   - kernel/sysproc.c: Implemented sys_getprocs() function
+     * Scans entire process table
+     * Collects: pid, ppid, priority, state, process name
+     * Copies data to user-space memory
+     * Returns number of processes collected (max 64)
+   
+   - user/user.h:
+     * Added struct procinfo with: pid, ppid, priority, state, name
+     * Added getprocs() syscall declaration
+
+3. PROCESS LISTING UTILITY (ps command)
+   ===================================
+   
+   New user-space utility to display all running processes in a formatted table.
+   
+   New File: user/ps.c
+   - Displays process information in table format:
+     * PID: Process ID
+     * PPID: Parent Process ID
+     * Priority: Process priority (0-31)
+     * State: Process state (used, sleep, runbl, run, zombie)
+     * Name: Process name
+   
+   - Handles up to 64 processes simultaneously
+   - Maps state numbers to readable names for users
+   
+   Files Modified:
+   - Makefile: Added $U/_ps to UPROGS list for compilation
+
+4. SHELL ENHANCEMENTS (sh.c)
+   ========================
+   
+   Significantly improved the interactive shell with modern command-line features.
+   
+   New Features:
+   
+   a) COMMAND HISTORY
+      - Records last 10 commands executed
+      - Each command stored with max 100 characters
+      - Circular buffer implementation (oldest entry overwritten when full)
+      - Access history with 'history' command
+      - Type 'history' in shell to view all stored commands
+      - Each history entry numbered 1-10, displayed in order
+   
+   b) TAB COMPLETION
+      - Auto-completion support for 26 common xv6 commands
+      - Built-in commands: cd, history, exit, wait
+      - Utilities: echo, cat, ls, mkdir, rm, ln, kill, grep, wc, ps
+      - Kernel ops: fork, pipe, stressfs, usertests, grind, zombie, 
+                   logstress, forphan, dorphan, init, sh, forktest
+      - Completion behavior:
+        * Unique match → Auto-completes instantly
+        * 2-5 matches → Lists suggestions, redraws prompt
+        * No match or >5 matches → Silent (no action)
+   
+   c) IMPROVED INPUT HANDLING
+      - Character-by-character input processing (real-time TAB detection)
+      - Full backspace support with visual feedback
+      - Ctrl+D (EOF) handling for proper shell exit
+      - All commands automatically logged to history
+   
+   d) HISTORY COMMAND
+      - Type 'history' to display numbered list of recent commands
+      - Shows all stored commands from oldest to newest
+      - Running 'history' command doesn't interfere with history tracking
+   
+   Files Modified:
+   - user/sh.c: Complete enhancement with:
+     * History buffer (10 commands, 100 chars each)
+     * Command array (26 common commands)
+     * add_history() - Adds command to circular buffer
+     * show_history() - Displays all stored commands
+     * find_matches() - Finds commands matching prefix for completion
+     * getcmd_with_completion() - Enhanced input handler with TAB/backspace
+     * Modified main() - Integrates history, history command, completion
+   
+   Preserved Functionality:
+   - All existing shell features work unchanged
+   - Pipe operations (|) fully compatible
+   - Input/output redirection (>, <, >>) unaffected
+   - Background job execution (&) works normally
+   - cd command functionality preserved
+   - Process execution and command parsing unchanged
+
+5. BACKWARD COMPATIBILITY
+   ======================
+   
+   All modifications maintain full backward compatibility:
+   - Existing processes unaffected by priority scheduling
+   - Default priority (20) suitable for normal workloads
+   - New syscall (getprocs) doesn't interfere with existing code
+   - ps command is optional; existing tools still function
+   - Shell improvements additive; basic shell still works without TAB/history
+
+================================================================================
+TESTING THE NEW FEATURES
+================================================================================
+
+1. Build the modified xv6:
+   $ make clean
+   $ make
+
+2. Test Priority Scheduler:
+   - Start multiple processes and observe CPU allocation
+   - Modify process priority values and recompile to observe change in scheduling
+
+3. Test Process Listing (ps):
+   $ ps
+   Will display table with all running processes and their properties
+
+4. Test Shell History:
+   $ history
+   Shows last 10 commands executed in numeric order
+
+5. Test Tab Completion:
+   - Type any command prefix (e.g., 'e') and press TAB
+   - System will auto-complete 'echo' if unique
+   - Type 'g' and press TAB to see: grep, grind, grun options
+
+6. Verify Backward Compatibility:
+   - All existing commands still work: ls, cat, mkdir, etc.
+   - Pipes work: $ cat file | grep pattern
+   - Redirects work: $ ls > listing.txt
+   - Background jobs work: $ sleep 10 &
+
+================================================================================
